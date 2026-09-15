@@ -1,3 +1,4 @@
+import os
 from django.shortcuts import render
 from django.http import HttpResponse
 
@@ -7,6 +8,10 @@ import matplotlib.pyplot as plt
 import matplotlib
 import io
 import urllib, base64
+
+import numpy as np
+from openai import OpenAI
+from dotenv import load_dotenv
 
 def home(request):
     #return HttpResponse('<h1>Welcome to Home Page</h1>')
@@ -25,7 +30,7 @@ def about(request):
     return render(request, 'about.html')
 
 def signup(request):
-    email = request.GET.get('email') 
+    email = request.GET.get('email')
     return render(request, 'signup.html', {'email':email})
 
 
@@ -123,3 +128,48 @@ def generate_bar_chart(data, xlabel, ylabel):
     buffer.close()
     graphic = base64.b64encode(image_png).decode('utf-8')
     return graphic
+
+
+def cosine_similarity(a, b):
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+
+def recommend(request):
+    """
+    Recibe un prompt del usuario, genera su embedding con OpenAI y
+    devuelve la película cuya descripción tenga mayor similitud de coseno.
+    """
+    prompt = request.GET.get('prompt')
+    recommended_movie = None
+    similarity_score = None
+
+    if prompt:
+        # Cargar la API Key (mismo patrón que los demás comandos)
+        load_dotenv('../openAI.env')
+        client = OpenAI(api_key=os.environ.get('openai_apikey'))
+
+        response = client.embeddings.create(
+            input=[prompt],
+            model="text-embedding-3-small"
+        )
+        prompt_emb = np.array(response.data[0].embedding, dtype=np.float32)
+
+        best_movie = None
+        max_similarity = -1
+
+        for movie in Movie.objects.all():
+            movie_emb = np.frombuffer(movie.emb, dtype=np.float32)
+            similarity = cosine_similarity(prompt_emb, movie_emb)
+
+            if similarity > max_similarity:
+                max_similarity = similarity
+                best_movie = movie
+
+        recommended_movie = best_movie
+        similarity_score = max_similarity
+
+    return render(request, 'recommend.html', {
+        'prompt': prompt,
+        'recommended_movie': recommended_movie,
+        'similarity_score': similarity_score,
+    })
